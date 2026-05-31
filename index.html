@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Intraday 5M">
+    <link rel="apple-touch-icon" href="icon.png">
+    <title>Intraday 5 Min</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            background-color: #05070a; 
+            color: #e2e8f0; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            padding-bottom: 20px;
+        }
+        .glass-card { 
+            background: rgba(15, 23, 42, 0.85); 
+            backdrop-filter: blur(12px); 
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(51, 65, 85, 0.5); 
+            border-radius: 1rem; 
+        }
+        input, select, textarea { font-size: 16px !important; } /* Prevents iOS zoom */
+        .btn { -webkit-tap-highlight-color: transparent; }
+        
+        /* Strategy Image Container */
+        .strategy-box { 
+            width: 100%; 
+            height: 340px; 
+            border-radius: 1rem; 
+            overflow: hidden; 
+            background: #0f172a; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            border: 1px solid #1e293b;
+        }
+        .strategy-box img { width: 100%; height: 100%; object-fit: cover; object-position: right; }
+        
+        /* iOS Safe Area */
+        .safe-top { padding-top: env(safe-area-inset-top, 20px); }
+        .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 20px); }
+        
+        /* Loading overlay */
+        #loadingOverlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(5, 7, 10, 0.9);
+            display: none; align-items: center; justify-content: center;
+            z-index: 9999;
+        }
+        .spinner { border: 3px solid #1e293b; border-top: 3px solid #3b82f6; border-radius: 50%; width: 40px; height: 40px; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .toast {
+            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+            background: #1e293b; color: #e2e8f0; padding: 12px 24px;
+            border-radius: 12px; border: 1px solid #334155;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: none; z-index: 9998;
+            font-size: 14px; text-align: center;
+        }
+    </style>
+</head>
+<body class="p-4 safe-top">
+
+    <!-- Loading -->
+    <div id="loadingOverlay"><div class="spinner"></div></div>
+    
+    <!-- Toast -->
+    <div id="toast" class="toast"></div>
+
+    <div class="max-w-2xl mx-auto">
+        
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-4">
+            <div>
+                <h1 class="text-2xl font-extrabold text-white">INTRADAY <span class="text-blue-500">5M</span></h1>
+                <p class="text-xs text-slate-500" id="statusText">● Offline</p>
+            </div>
+            <div class="flex gap-4">
+                <div class="text-right">
+                    <p class="text-[10px] text-slate-500 uppercase font-bold">Net P&L</p>
+                    <p id="total-pnl" class="text-lg font-mono font-bold text-green-400">₹0</p>
+                </div>
+                <div class="text-right border-l border-slate-800 pl-4">
+                    <p class="text-[10px] text-slate-500 uppercase font-bold">Capital</p>
+                    <p id="current-equity" class="text-lg font-mono font-bold text-white">₹42,662</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Strategy Image -->
+        <div class="glass-card p-4 mb-4">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-sm font-bold text-white">📈 Strategy</h2>
+                <span class="px-2 py-0.5 bg-blue-500/10 text-blue-400 text-[10px] rounded-full">Hilega Milega</span>
+            </div>
+            <div class="strategy-box">
+                <img src="strategy.png" alt="Strategy" 
+                     onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\'text-center p-6\'><div class=\'text-4xl mb-2\'>📊</div><p class=\'text-slate-500 text-sm\'>Add strategy.png</p></div>'">
+            </div>
+            <div class="grid grid-cols-2 gap-3 mt-3">
+                <div class="bg-slate-900/50 p-2 rounded-lg">
+                    <p class="text-[10px] text-slate-500 uppercase font-bold">Rule</p>
+                    <p class="text-xs text-slate-300">RSI bounce from 21 WMA</p>
+                </div>
+                <div class="bg-slate-900/50 p-2 rounded-lg">
+                    <p class="text-[10px] text-slate-500 uppercase font-bold">Mindset</p>
+                    <p class="text-xs text-slate-300">No revenge trading</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Trade Form -->
+        <div class="glass-card p-4 mb-4">
+            <h2 class="text-sm font-bold text-white mb-4">✏️ Log Trade</h2>
+            <form id="tradeForm" class="space-y-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Instrument</label>
+                    <input type="text" id="instrument" placeholder="Nifty 23900 CE" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 focus:outline-none focus:border-blue-500 transition" required>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">P&L (₹)</label>
+                        <input type="number" id="pnl" step="any" placeholder="500" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 focus:outline-none focus:border-blue-500 transition" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Charges (₹)</label>
+                        <input type="number" id="charges" step="any" placeholder="250" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 focus:outline-none focus:border-blue-500 transition" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition active:scale-95">Add Trade → Google Sheets</button>
+            </form>
+        </div>
+
+        <!-- Equity Curve (Mini Chart) -->
+        <div class="glass-card p-4 mb-4">
+            <h3 class="text-xs font-bold text-slate-400 mb-3 uppercase">Equity Curve</h3>
+            <div class="h-48">
+                <canvas id="equityChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Trade History -->
+        <div class="glass-card overflow-hidden mb-4">
+            <div class="p-4 border-b border-slate-800 flex justify-between items-center">
+                <h2 class="text-sm font-bold text-white">Trade Log</h2>
+                <button id="refreshBtn" class="text-blue-400 text-xs font-bold">↻ Refresh</button>
+            </div>
+            <div id="tradeHistory" class="divide-y divide-slate-800/50 max-h-80 overflow-y-auto">
+                <div class="p-4 text-center text-slate-500 text-sm">Loading trades...</div>
+            </div>
+        </div>
+
+        <!-- Install Instructions -->
+        <div id="installBanner" class="glass-card p-4 text-center text-slate-400 text-xs">
+            📲 <strong>Install on iPhone:</strong> Tap Share → Add to Home Screen
+        </div>
+    </div>
+
+    <script>
+        // ⚙️ CONFIGURATION - PASTE YOUR GOOGLE APPS SCRIPT URL HERE
+        const APPS_SCRIPT_URL = "YOUR_GOOGLE_APPS_SCRIPT_URL_HERE";
+        
+        let initialCapital = 42662;
+        let trades = [];
+        let chart = null;
+
+        const elements = {
+            tradeForm: document.getElementById('tradeForm'),
+            tradeHistory: document.getElementById('tradeHistory'),
+            totalPnl: document.getElementById('total-pnl'),
+            currentEquity: document.getElementById('current-equity'),
+            statusText: document.getElementById('statusText'),
+            loading: document.getElementById('loadingOverlay'),
+            toast: document.getElementById('toast'),
+            refreshBtn: document.getElementById('refreshBtn')
+        };
+
+        // Initialize Chart
+        function initChart() {
+            const ctx = document.getElementById('equityChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['Start'],
+                    datasets: [{
+                        label: 'Equity',
+                        data: [initialCapital],
+                        borderColor: '#3b82f6',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: true,
+                        backgroundColor: 'rgba(59, 130, 246, 0.05)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: false },
+                        y: { grid: { color: '#1e293b' }, ticks: { color: '#64748b', font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        // Show toast message
+        function showToast(msg, isError = false) {
+            elements.toast.textContent = msg;
+            elements.toast.style.display = 'block';
+            elements.toast.style.background = isError ? '#451a1a' : '#1e293b';
+            elements.toast.style.borderColor = isError ? '#7f1d1d' : '#334155';
+            setTimeout(() => { elements.toast.style.display = 'none'; }, 3000);
+        }
+
+        // Set online/offline status
+        function setOnlineStatus(online) {
+            elements.statusText.textContent = online ? '● Live (Google Sheet)' : '● Offline';
+            elements.statusText.className = `text-xs ${online ? 'text-green-400' : 'text-red-400'}`;
+        }
+
+        // Load trades from Google Sheets
+        async function loadTrades() {
+            if (APPS_SCRIPT_URL === "YOUR_GOOGLE_APPS_SCRIPT_URL_HERE") {
+                elements.tradeHistory.innerHTML = `<div class="p-4 text-center text-slate-500 text-sm">⚠️ Configure APPS_SCRIPT_URL in the code</div>`;
+                return;
+            }
+            
+            elements.loading.style.display = 'flex';
+            try {
+                const res = await fetch(APPS_SCRIPT_URL);
+                const data = await res.json();
+                
+                if (data.trades) {
+                    trades = data.trades;
+                    initialCapital = data.initialCapital || 42662;
+                    setOnlineStatus(true);
+                    renderUI();
+                }
+            } catch(err) {
+                setOnlineStatus(false);
+                showToast('Could not load from Google Sheets. Check internet.', true);
+            }
+            elements.loading.style.display = 'none';
+        }
+
+        // Add trade to Google Sheets
+        async function addTrade(instrument, pnl, charges) {
+            if (APPS_SCRIPT_URL === "YOUR_GOOGLE_APPS_SCRIPT_URL_HERE") {
+                showToast('⚠️ Please configure Google Script URL first', true);
+                return false;
+            }
+
+            elements.loading.style.display = 'flex';
+            try {
+                const res = await fetch(APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors', // Required for Google Apps Script
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ instrument, pnl, charges })
+                });
+                
+                // no-cors means we can't read response, reload instead
+                showToast('✅ Trade saved to Google Sheets!');
+                await loadTrades();
+                return true;
+            } catch(err) {
+                showToast('❌ Failed to save. Check network.', true);
+                elements.loading.style.display = 'none';
+                return false;
+            }
+        }
+
+        // Render the UI
+        function renderUI() {
+            const historyEl = elements.tradeHistory;
+            
+            if (trades.length === 0) {
+                historyEl.innerHTML = `<div class="p-4 text-center text-slate-500 text-sm">No trades yet. Add your first trade!</div>`;
+                updateStats([]);
+                return;
+            }
+
+            let html = '';
+            let runningCap = initialCapital;
+            let totalNet = 0;
+            
+            trades.forEach((t, i) => {
+                const netPnl = Number(t.pnl) - Number(t.charges);
+                runningCap = t.capital || (runningCap + netPnl);
+                totalNet += netPnl;
+                
+                const date = t.timestamp ? new Date(t.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : `T${i+1}`;
+                
+                html += `
+                    <div class="p-3 flex justify-between items-center hover:bg-slate-800/20 transition">
+                        <div>
+                            <p class="text-sm font-bold text-white">${t.instrument}</p>
+                            <p class="text-[10px] text-slate-500">${date}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-sm font-mono font-bold ${netPnl >= 0 ? 'text-green-400' : 'text-red-400'}">${netPnl >= 0 ? '+' : ''}₹${netPnl.toFixed(0)}</p>
+                            <p class="text-[10px] text-slate-500">Cap: ₹${runningCap.toFixed(0)}</p>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            historyEl.innerHTML = html;
+            updateStats(trades);
+            updateChart(trades);
+        }
+
+        function updateStats(tradesList) {
+            let cap = initialCapital;
+            let net = 0;
+            tradesList.forEach(t => {
+                const n = Number(t.pnl) - Number(t.charges);
+                cap = t.capital || (cap + n);
+                net += n;
+            });
+            
+            elements.totalPnl.textContent = `₹${net.toFixed(0)}`;
+            elements.totalPnl.className = `text-lg font-mono font-bold ${net >= 0 ? 'text-green-400' : 'text-red-400'}`;
+            elements.currentEquity.textContent = `₹${cap.toLocaleString('en-IN')}`;
+        }
+
+        function updateChart(tradesList) {
+            if (!chart) return;
+            const labels = ['Start'];
+            const data = [initialCapital];
+            let cap = initialCapital;
+            
+            tradesList.forEach((t, i) => {
+                const net = Number(t.pnl) - Number(t.charges);
+                cap = t.capital || (cap + net);
+                labels.push(`T${i+1}`);
+                data.push(cap);
+            });
+            
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = data;
+            chart.update();
+        }
+
+        // Event: Submit trade form
+        elements.tradeForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const instrument = document.getElementById('instrument').value;
+            const pnl = parseFloat(document.getElementById('pnl').value);
+            const charges = parseFloat(document.getElementById('charges').value);
+            
+            await addTrade(instrument, pnl, charges);
+            elements.tradeForm.reset();
+        });
+
+        // Event: Refresh button
+        elements.refreshBtn.addEventListener('click', loadTrades);
+
+        // Initialize
+        initChart();
+        loadTrades();
+
+        // Check if running as installed PWA
+        if (window.navigator.standalone) {
+            document.getElementById('installBanner').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
